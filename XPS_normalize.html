@@ -1,0 +1,1283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Excel Plot Normalizer</title>
+<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    /* True-neutral greys — Sony instrument feel */
+    --bg:        #f4f4f5;
+    --surface:   #ffffff;
+    --surface2:  #fafafa;
+    --surface3:  #ededee;
+    --border:    #d8d8da;
+    --border2:   #e8e8ea;
+    --hairline:  #00000010;
+
+    /* Ink */
+    --text:      #111113;
+    --text2:     #2a2a2d;
+    --muted:     #6b6b70;
+    --mute2:     #97979c;
+
+    /* Single restrained accent — graphite-blue, low chroma */
+    --accent:        #2563eb;
+    --accent-soft:   #eff3fb;
+    --accent2:       #18181b;
+    --accent2-light: #f4f4f5;
+    --accent-light:  #eff3fb;
+
+    /* Status */
+    --success: #16794a;
+    --warn:    #a16207;
+    --error:   #b42318;
+
+    /* Code colors */
+    --num-color: #2563eb;
+    --str-color: #92400e;
+
+    /* Geometry */
+    --r-sm: 6px;
+    --r-md: 10px;
+    --r-lg: 14px;
+    --shadow-1: 0 1px 0 rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-2: 0 1px 0 rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.06);
+
+    --ui-font: 'Inter', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    --mono-font: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  html.dark {
+    --bg:       #0c0c0d;
+    --surface:  #161617;
+    --surface2: #1c1c1e;
+    --surface3: #232325;
+    --border:   #2c2c2f;
+    --border2:  #232326;
+    --hairline: #ffffff10;
+
+    --text:    #f1f1f3;
+    --text2:   #d8d8db;
+    --muted:   #9a9aa0;
+    --mute2:   #6e6e74;
+
+    --accent:        #6ea8ff;
+    --accent-soft:   #1a2540;
+    --accent2:       #f1f1f3;
+    --accent2-light: #1c1c1e;
+    --accent-light:  #1a2540;
+
+    --success: #4ade80;
+    --warn:    #fbbf24;
+    --error:   #f87171;
+
+    --num-color: #6ea8ff;
+    --str-color: #fbbf24;
+
+    --shadow-1: 0 1px 0 rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-2: 0 1px 0 rgba(0,0,0,0.3), 0 4px 12px rgba(0,0,0,0.5);
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--ui-font);
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: -0.005em;
+  }
+
+  /* ============ HEADER (flat, instrument bar) ============ */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 22px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  header .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  header .logo {
+    font-family: var(--mono-font);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+  header .logo span { color: var(--accent); }
+  header .vline {
+    width: 1px;
+    height: 18px;
+    background: var(--border);
+    margin: 0 4px;
+  }
+  header .crumb {
+    font-family: var(--mono-font);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  header .grow { flex: 1; }
+
+  /* Header buttons — flat, square, instrument-grade */
+  .hdr-btn {
+    height: 32px;
+    padding: 0 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    color: var(--text2);
+    font-family: var(--ui-font);
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+    letter-spacing: -0.005em;
+  }
+  .hdr-btn:hover { background: var(--surface2); border-color: var(--mute2); }
+  .hdr-btn:active { background: var(--surface3); }
+  .hdr-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .hdr-btn.primary {
+    background: var(--text);
+    color: var(--bg);
+    border-color: var(--text);
+  }
+  .hdr-btn.primary:hover { background: var(--text2); border-color: var(--text2); }
+  .hdr-btn.accent {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  html.dark .hdr-btn.accent { color: #0c0c0d; }
+  .hdr-btn.accent:hover { filter: brightness(0.95); }
+  .hdr-btn .ic { font-family: var(--mono-font); font-size: 13px; opacity: 0.7; }
+  .hdr-btn.icon-only {
+    width: 32px; padding: 0; justify-content: center;
+  }
+  .hdr-btn.toggle.active {
+    background: var(--text);
+    color: var(--bg);
+    border-color: var(--text);
+  }
+
+  #newFileBtn {
+    font-weight: 700;
+  }
+  /* ============ MAIN ============ */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 16px 22px 8px;
+    gap: 12px;
+    max-width: 1700px;
+    width: 100%;
+    margin: 0 auto;
+  }
+
+  /* ============ DROPZONE ============ */
+  #dropzone {
+    border: 1px dashed var(--border);
+    border-radius: var(--r-lg);
+    padding: 80px 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    background: var(--surface);
+    margin: 40px auto;
+    max-width: 640px;
+    width: 100%;
+  }
+  #dropzone:hover, #dropzone.drag-over {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  #dropzone .icon {
+    font-family: var(--mono-font);
+    font-size: 44px;
+    margin-bottom: 18px;
+    display: block;
+    color: var(--accent);
+    font-weight: 300;
+  }
+  #dropzone h2 {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--text);
+    letter-spacing: -0.02em;
+  }
+  #dropzone p {
+    color: var(--muted);
+    font-size: 12px;
+    font-family: var(--mono-font);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  #fileInput { display: none; }
+
+  /* ============ STATUS / DOTS ============ */
+  /* Hidden during normal operation, but showStatus() reveals it for errors.
+     (Previously `display:none !important` made even parse errors invisible.) */
+  #statusBar {
+    display: none;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    font-size: 13px;
+  }
+  .dot.error { background: var(--error); }
+  .dot.loading { background: var(--warn); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
+  .dot.error { background: var(--error); }
+  .dot.loading { background: var(--accent); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* ============ CONTENT GRID ============ */
+  #content { display: none; gap: 12px; flex: 1; }
+  #content.visible { display: flex; }
+
+  .panel-row { display: grid; grid-template-columns: 1fr 1.618fr; gap: 12px; flex: 1; min-height: 540px; }
+  body.hplc-mode .panel-row { grid-template-columns: 300px 1fr; }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    box-shadow: var(--shadow-1);
+  }
+
+  .panel-header {
+    padding: 0 14px;
+    height: 38px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono-font);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--surface2);
+  }
+  .panel-header .count {
+    background: var(--surface);
+    color: var(--text);
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-size: 10.5px;
+    border: 1px solid var(--border);
+    letter-spacing: 0.06em;
+  }
+  .panel-body { flex: 1; overflow-y: auto; padding: 6px; }
+  .panel-body::-webkit-scrollbar { width: 8px; }
+  .panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .panel-body::-webkit-scrollbar-track { background: transparent; }
+
+  /* Raw-tree group/channel rows */
+  .group-node { margin-bottom: 1px; }
+  .group-label { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: var(--r-sm); cursor: pointer; font-size: 13px; font-weight: 500; color: var(--text); transition: background 0.12s; user-select: none; }
+  .group-label:hover { background: var(--surface2); }
+  .group-label .arrow { color: var(--muted); font-size: 10px; transition: transform 0.18s; flex-shrink: 0; font-family: var(--mono-font); }
+  .group-label.open .arrow { transform: rotate(90deg); }
+  .group-label .g-icon { color: var(--muted); flex-shrink: 0; font-family: var(--mono-font); }
+  .group-label .ch-count { margin-left: auto; font-family: var(--mono-font); font-size: 11px; color: var(--muted); flex-shrink: 0; letter-spacing: 0.04em; }
+  .channels-list { padding-left: 14px; display: none; }
+  .channels-list.open { display: block; }
+  .channel-item { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: var(--r-sm); cursor: pointer; font-size: 12px; font-family: var(--mono-font); color: var(--muted); transition: all 0.12s; border: 1px solid transparent; margin-bottom: 1px; }
+  .channel-item:hover { background: var(--surface2); color: var(--text); }
+  .channel-item.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+  .channel-item .c-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+  .channel-item.active .c-dot { background: var(--accent); }
+  .channel-item .dtype { margin-left: auto; font-size: 10px; color: var(--muted); background: var(--surface3); padding: 1px 6px; border-radius: 3px; flex-shrink: 0; letter-spacing: 0.05em; }
+
+  /* Tabs in raw view */
+  .data-panel { flex: 1; display: flex; flex-direction: column; }
+  .tabs { display: flex; gap: 0; padding: 0 8px; border-bottom: 1px solid var(--border); background: var(--surface2); }
+  .tab {
+    padding: 11px 14px;
+    font-size: 12px;
+    font-family: var(--mono-font);
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all 0.12s;
+    user-select: none;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab-content { display: none; flex: 1; overflow: auto; padding: 14px; }
+  .tab-content.active { display: block; }
+
+  .props-table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--mono-font); }
+  .props-table th { text-align: left; padding: 8px 12px; color: var(--muted); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; border-bottom: 1px solid var(--border); background: var(--surface2); }
+  .props-table td { padding: 6px 12px; border-bottom: 1px solid var(--border2); vertical-align: top; }
+  .props-table tr:hover td { background: var(--surface2); }
+  .props-table .key { color: var(--text2); }
+  .props-table .val { color: var(--text); word-break: break-all; }
+  .props-table .tcell { color: var(--muted); font-size: 11px; }
+
+  .values-wrap { overflow: auto; }
+  .values-table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--mono-font); }
+  .values-table th { position: sticky; top: 0; background: var(--surface2); padding: 8px 12px; color: var(--muted); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; border-bottom: 1px solid var(--border); z-index: 1; }
+  .values-table th:first-child { text-align: left; width: 70px; }
+  .values-table td { padding: 5px 12px; border-bottom: 1px solid var(--border2); }
+  .values-table td:first-child { color: var(--muted); }
+  .values-table tr:hover td { background: var(--surface2); }
+  .num { color: var(--num-color); }
+  .str { color: var(--str-color); }
+
+  .truncate-note { text-align: center; color: var(--muted); font-family: var(--mono-font); font-size: 12px; padding: 10px; border-top: 1px solid var(--border2); margin-top: 8px; letter-spacing: 0.04em; }
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 200px; color: var(--muted); font-family: var(--mono-font); font-size: 13px; gap: 12px; letter-spacing: 0.04em; }
+  .empty-state .big { font-size: 28px; opacity: 0.4; }
+
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 12px 14px;
+  }
+  .stat-card .label { font-family: var(--mono-font); font-size: 10.5px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px; }
+  .stat-card .value { font-family: var(--mono-font); font-size: 16px; color: var(--text); font-weight: 600; }
+  .stat-card .value.blue { color: var(--accent); }
+  .stat-card .value.white { color: var(--text); font-size: 14px; font-weight: 500; }
+
+  footer {
+    text-align: center;
+    padding: 12px;
+    font-family: var(--mono-font);
+    font-size: 10.5px;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    margin-top: auto;
+    background: var(--surface);
+    letter-spacing: 0.06em;
+  }
+
+  /* Channel preview tooltip */
+  #channelPreview {
+    position: fixed;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 10px;
+    border-radius: var(--r-sm);
+    box-shadow: var(--shadow-2);
+    font-family: var(--mono-font);
+    font-size: 12px;
+    color: var(--text);
+    z-index: 1000;
+    pointer-events: none;
+    display: none;
+  }
+  .pv-title { color: var(--text); margin-bottom: 6px; font-weight: 600; border-bottom: 1px solid var(--border2); padding-bottom: 4px; letter-spacing: 0.02em; }
+  .pv-val { color: var(--muted); }
+
+  /* ============ HPLC view ============ */
+  #hplcView {
+    display: none;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-1);
+  }
+  body.hplc-mode #content > .panel-row > .data-panel { display: none; }
+  body.hplc-mode #hplcView { display: flex; }
+  body.hplc-mode #content > .panel-row > .panel:first-child > .panel-body { padding: 0; }
+
+  /* mode-conditional UI bits */
+  .hplc-only { display: none; }
+  body.hplc-mode .hplc-only { display: inline; }
+  body.hplc-mode .raw-only  { display: none; }
+
+  /* Filter bar above the chromatogram list */
+  .hplc-filter-bar {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .hplc-filter-bar select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 7px 10px;
+    border-radius: var(--r-sm);
+    font-family: var(--ui-font);
+    font-size: 12.5px;
+    width: 100%;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 28px;
+  }
+  .hplc-filter-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; }
+  .hplc-filter-actions button {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 5px 6px;
+    border-radius: var(--r-sm);
+    font-family: var(--mono-font);
+    font-size: 10.5px;
+    cursor: pointer;
+    transition: all 0.12s;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .hplc-filter-actions button:hover { border-color: var(--text); color: var(--text); background: var(--surface2); }
+  .hplc-filter-summary {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: var(--mono-font);
+    letter-spacing: 0.04em;
+    padding: 0 2px;
+  }
+  .hplc-filter-summary b { color: var(--text); font-weight: 600; }
+
+  body.hplc-mode .channel-item .c-dot { display: none; }
+
+  /* ============ Sony-style segmented dial toolbar ============ */
+  .hplc-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+
+  /* Dial-card group: vertical label + value */
+  .dial {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 6px 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    min-width: 88px;
+    transition: border-color 0.12s, background 0.12s;
+  }
+  .dial:focus-within { border-color: var(--accent); background: var(--surface); }
+  .dial .lbl {
+    font-family: var(--mono-font);
+    font-size: 9.5px;
+    color: var(--muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    line-height: 1;
+  }
+  .dial .ctl {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+  .dial input[type=number],
+  .dial select {
+    background: transparent;
+    border: none;
+    color: var(--text);
+    padding: 0;
+    font-family: var(--mono-font);
+    font-size: 15px;
+    font-weight: 600;
+    width: 60px;
+    outline: none;
+    letter-spacing: 0.01em;
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+  .dial input[type=number]::-webkit-outer-spin-button,
+  .dial input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .dial select {
+    width: auto;
+    cursor: pointer;
+    padding-right: 14px;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 6px) 8px, calc(100% - 2px) 8px;
+    background-size: 4px 4px, 4px 4px;
+    background-repeat: no-repeat;
+  }
+  .dial .unit {
+    font-family: var(--mono-font);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+  }
+
+  /* Segmented control for peak shape */
+  .segmented {
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 2px;
+    display: inline-flex;
+    gap: 2px;
+  }
+  .segmented button {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 5px 12px;
+    border-radius: 4px;
+    font-family: var(--mono-font);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    transition: all 0.12s;
+  }
+  .segmented button.active {
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: var(--shadow-1);
+  }
+  .segmented button:hover:not(.active) { color: var(--text2); }
+
+  .hplc-toolbar .spacer { flex: 1; }
+  .hplc-toolbar .tb-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0 14px;
+    border-radius: var(--r-sm);
+    font-family: var(--ui-font);
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.12s;
+    height: auto;
+    align-self: stretch;
+  }
+  .hplc-toolbar .tb-btn:hover { background: var(--surface2); border-color: var(--text); }
+  .hplc-toolbar .tb-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .hplc-toolbar .tb-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  html.dark .hplc-toolbar .tb-btn.primary { color: #0c0c0d; }
+  .hplc-toolbar .tb-btn.primary:hover { filter: brightness(0.95); }
+  .hplc-toolbar .tb-btn.adding-peak { background: var(--success); color: #fff; border-color: var(--success); }
+  html.dark .hplc-toolbar .tb-btn.adding-peak { color: #0c0c0d; }
+
+  body.hplc-add-peak .hplc-chart-wrap canvas { cursor: crosshair !important; }
+
+  /* ============ Chart ============ */
+  .hplc-chart-wrap {
+    flex: 1;
+    min-height: 320px;
+    position: relative;
+    background: var(--surface);
+  }
+  #hplcChart { width: 100%; height: 100%; display: block; }
+
+  .hplc-legend {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    background: rgba(255,255,255,0.92);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 7px 10px;
+    font-family: var(--mono-font);
+    font-size: 11px;
+    max-width: 240px;
+    box-shadow: var(--shadow-1);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  html.dark .hplc-legend { background: rgba(22,22,23,0.92); }
+  .hplc-legend .row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+  .hplc-legend .swatch { width: 14px; height: 2px; flex-shrink: 0; }
+  .hplc-legend .label { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hplc-legend .meta { color: var(--muted); letter-spacing: 0.04em; }
+
+  .hplc-cursor {
+    position: absolute;
+    bottom: 12px;
+    left: 14px;
+    background: rgba(255,255,255,0.92);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 5px 10px;
+    font-family: var(--mono-font);
+    font-size: 11px;
+    color: var(--text);
+    pointer-events: none;
+    display: none;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    letter-spacing: 0.02em;
+  }
+  html.dark .hplc-cursor { background: rgba(22,22,23,0.92); }
+
+  .hplc-zoom-controls {
+    position: absolute;
+    top: 12px;
+    left: 14px;
+    display: flex;
+    gap: 6px;
+  }
+  .hplc-zoom-controls > div {
+    background: rgba(255,255,255,0.92);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 2px;
+    display: flex;
+    gap: 1px;
+    box-shadow: var(--shadow-1);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  html.dark .hplc-zoom-controls > div { background: rgba(22,22,23,0.92); }
+  .hplc-zoom-controls button {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    width: 26px;
+    height: 22px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 0;
+    transition: all 0.12s;
+    font-family: var(--mono-font);
+  }
+  .hplc-zoom-controls button:hover {
+    background: var(--surface3);
+    color: var(--text);
+  }
+  .hplc-zoom-controls .hplc-zoom-mode-btn {
+    width: 26px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+  }
+  .hplc-zoom-controls .hplc-zoom-mode-btn.active {
+    background: var(--text);
+    color: var(--bg);
+  }
+
+  .hplc-empty {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-family: var(--mono-font);
+    font-size: 12.5px;
+    gap: 10px;
+    padding: 20px;
+    text-align: center;
+    background: var(--surface);
+    z-index: 5;
+    letter-spacing: 0.04em;
+  }
+  .hplc-empty .big { font-size: 32px; opacity: 0.4; }
+
+  /* ============ Peak table ============ */
+  .hplc-results {
+    border-top: 1px solid var(--border);
+    height: 220px;
+    overflow: auto;
+    background: var(--surface);
+  }
+  .hplc-results-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+    font-family: var(--mono-font);
+    font-size: 10.5px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    position: sticky; top: 0; z-index: 1;
+  }
+  table.hplc-peaks {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono-font);
+    font-size: 12px;
+  }
+  table.hplc-peaks th {
+    text-align: left;
+    padding: 8px 12px;
+    background: var(--surface2);
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    border-bottom: 1px solid var(--border);
+    font-weight: 500;
+  }
+  table.hplc-peaks td {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border2);
+    color: var(--text);
+  }
+  table.hplc-peaks tr:hover td { background: var(--surface2); }
+  table.hplc-peaks .group-cell { display: inline-flex; align-items: center; gap: 8px; }
+  table.hplc-peaks .swatch { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  table.hplc-peaks .r2-good { color: var(--success); }
+  table.hplc-peaks .r2-warn { color: var(--warn); }
+  table.hplc-peaks .r2-bad  { color: var(--error); }
+
+  table.hplc-peaks .peak-del-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--muted);
+    cursor: pointer;
+    width: 22px; height: 22px;
+    line-height: 1;
+    border-radius: 4px;
+    font-family: var(--mono-font);
+    font-size: 14px;
+    padding: 0;
+    transition: all 0.12s;
+    opacity: 0.4;
+  }
+  table.hplc-peaks tr:hover .peak-del-btn { opacity: 1; }
+  table.hplc-peaks .peak-del-btn:hover {
+    background: rgba(180,35,24,0.08);
+    border-color: var(--error);
+    color: var(--error);
+  }
+  html.dark table.hplc-peaks .peak-del-btn:hover { background: rgba(248,113,113,0.12); }
+
+  .hplc-chart-wrap canvas { cursor: grab; }
+
+  /* ============ Chromatogram cards (left panel) ============ */
+  .hplc-sg-list { padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .hplc-sg-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 10px;
+    border: 1px solid var(--border2);
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    font-size: 12.5px;
+    transition: all 0.12s;
+    background: var(--surface);
+  }
+  .hplc-sg-item:hover { background: var(--surface2); border-color: var(--border); }
+  .hplc-sg-item.active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .hplc-sg-item .swatch { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .hplc-sg-item .name { flex: 1; font-family: var(--mono-font); font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+  .hplc-sg-item .meta { font-family: var(--mono-font); font-size: 10.5px; color: var(--muted); flex-shrink: 0; letter-spacing: 0.04em; }
+  .hplc-sg-item input { accent-color: var(--accent); cursor: pointer; }
+  .hplc-sg-item .cfg-btn, .hplc-sg-item .rm-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 2px 4px;
+    line-height: 1;
+    opacity: 0.5;
+    transition: all 0.15s;
+    flex-shrink: 0;
+    border-radius: 4px;
+    font-family: var(--mono-font);
+  }
+  .hplc-sg-item:hover .cfg-btn { opacity: 1; }
+  .hplc-sg-item:hover .rm-btn { opacity: 0.6; }
+  .hplc-sg-item .cfg-btn:hover { color: var(--accent); }
+  .hplc-sg-item .rm-btn:hover { opacity: 1; color: var(--error); background: var(--surface3); }
+
+  .hplc-sg-config {
+    padding: 10px 12px;
+    border: 1px solid var(--border2);
+    border-radius: var(--r-sm);
+    margin: 4px 8px 8px;
+    background: var(--surface2);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .hplc-sg-config .row {
+    display: grid;
+    grid-template-columns: 80px 1fr;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .hplc-sg-config .row:last-child { margin-bottom: 0; }
+  .hplc-sg-config select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 5px 8px;
+    border-radius: var(--r-sm);
+    font-family: var(--mono-font);
+    font-size: 12px;
+    width: 100%;
+  }
+  .hplc-sg-config label {
+    font-family: var(--mono-font);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  /* Busy state */
+  body.hplc-busy, body.hplc-busy * { cursor: progress !important; }
+  body.hplc-busy #hplcView, body.hplc-busy #treeContainer {
+    pointer-events: none;
+    opacity: 0.6;
+    transition: opacity 0.15s;
+  }
+
+  /* Toast */
+  #hplcToast {
+    position: fixed;
+    bottom: 56px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--text);
+    color: var(--bg);
+    font-family: var(--mono-font);
+    font-size: 12px;
+    padding: 9px 16px;
+    border-radius: var(--r-sm);
+    letter-spacing: 0.04em;
+    box-shadow: var(--shadow-2);
+    z-index: 2000;
+    display: none;
+    pointer-events: none;
+  }
+
+  /* Sort toggle in raw panel */
+  #sortToggle {
+    font-family: var(--mono-font);
+    font-size: 11px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 3px 9px;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    transition: all 0.12s;
+    letter-spacing: 0.06em;
+  }
+  #sortToggle:hover { border-color: var(--text); color: var(--text); }
+</style>
+</head>
+<body class="hplc-mode">
+
+<header>
+  <div class="brand">
+    <div class="logo">EXCEL<span>·</span>NORMALIZER</div>
+    <div class="vline"></div>
+    <div class="crumb">Comparaisons.xlsx</div>
+  </div>
+  <div class="grow"></div>
+  <button id="normalizeBtn" class="hdr-btn primary" onclick="normalizeSelected()" disabled title="Normalize selected plots to max=1"><span class="ic"></span>Normalize Selected</button>
+  <button id="exportBtn" class="hdr-btn" onclick="exportExcel()" disabled title="Export updated Excel file"><span class="ic"></span>Export Excel</button>
+  <div class="vline"></div>
+  <button id="newFileBtn" class="hdr-btn" onclick="document.getElementById('fileInput').click()"><span class="ic"></span>Open file</button>
+  <button id="themeToggle" class="hdr-btn icon-only" onclick="document.documentElement.classList.toggle('dark'); drawChart();">🌙</button>
+</header>
+
+<div class="main">
+  <div id="dropzone">
+    <span class="icon">⌇</span>
+    <h2>Load Comparaisons.xlsx</h2>
+    <p>Excel file · click or drag · runs locally</p>
+    <input type="file" id="fileInput" accept=".xlsx, .xls">
+  </div>
+
+  <div id="content">
+    <div class="panel-row">
+      <!-- Left Panel: Tree -->
+      <div class="panel" style="max-width: 350px;">
+        <div class="panel-header">
+          <span>Sheets & Columns</span>
+        </div>
+        <div class="panel-body" id="treeContainer"></div>
+      </div>
+
+<!-- Right Panel: Chart -->
+      <div id="hplcView" style="display: flex; flex: 1; min-width: 0; position: sticky; top: 20px; height: calc(100vh - 120px);">
+        <div class="hplc-chart-wrap" id="plotWrap" style="flex: 1; position: relative; padding: 0;">
+          <canvas id="mainChart" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></canvas>
+          <div class="hplc-empty" id="chartEmpty" style="position: absolute; width: 100%; height: 100%; z-index: 10; display: flex; align-items: center; justify-content: center;">
+            <div>Select one or more columns on the left to plot</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div id="hplcToast"></div>
+
+<script>
+const APP = {
+  fileName: 'Comparaisons.xlsx',
+  sheetsData: {}, // Format: { sheetName: { headers: [], columns: [[]] } }
+  selectedCols: new Set(), // Format: "sheetName|colIndex"
+  colors: ['#e11d48', '#2563eb', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#ea580c', '#4f46e5']
+};
+
+// --- UI Helpers ---
+function showToast(msg) {
+  const t = document.getElementById('hplcToast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  setTimeout(() => { t.style.display = 'none'; }, 2400);
+}
+
+function updateButtons() {
+  const hasSelection = APP.selectedCols.size > 0;
+  const hasData = Object.keys(APP.sheetsData).length > 0;
+  document.getElementById('normalizeBtn').disabled = !hasSelection;
+  document.getElementById('exportBtn').disabled = !hasData;
+  document.getElementById('chartEmpty').style.display = hasSelection ? 'none' : 'flex';
+}
+
+// --- File Handling & Parsing ---
+document.getElementById('dropzone').addEventListener('click', () => document.getElementById('fileInput').click());
+document.getElementById('fileInput').addEventListener('change', e => handleFile(e.target.files[0]));
+
+function handleFile(file) {
+  if (!file) return;
+  APP.fileName = file.name;
+  const reader = new FileReader();
+  
+  reader.onload = e => {
+    const data = new Uint8Array(e.target.result);
+    const wb = XLSX.read(data, { type: 'array' });
+    
+    APP.sheetsData = {};
+    APP.selectedCols.clear();
+
+    wb.SheetNames.forEach(sheetName => {
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: null });
+      if (rows.length === 0) return;
+
+      const headers = rows[0].map((h, i) => h || `Column_${i}`);
+      const columns = headers.map(() => []);
+
+      for (let i = 1; i < rows.length; i++) {
+        for (let j = 0; j < headers.length; j++) {
+          columns[j].push(rows[i][j]);
+        }
+      }
+      APP.sheetsData[sheetName] = { headers, columns };
+    });
+
+    document.getElementById('dropzone').style.display = 'none';
+    document.getElementById('content').style.display = 'flex';
+    buildTree();
+    updateButtons();
+    showToast(`Loaded ${file.name}`);
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// --- Tree Building ---
+function buildTree() {
+  const container = document.getElementById('treeContainer');
+  container.innerHTML = '';
+
+  Object.keys(APP.sheetsData).forEach(sheetName => {
+    const sheet = APP.sheetsData[sheetName];
+    
+    const node = document.createElement('div');
+    node.className = 'group-node';
+    
+    const label = document.createElement('div');
+    label.className = 'group-label open';
+    label.innerHTML = `<span class="arrow">▶</span><span class="g-icon">▤</span>${sheetName}<span class="ch-count">${sheet.headers.length - 1} plots</span>`;
+    
+    const chList = document.createElement('div');
+    chList.className = 'channels-list open';
+
+    label.addEventListener('click', () => {
+      label.classList.toggle('open');
+      chList.classList.toggle('open');
+    });
+
+    // Start loop from 1, because index 0 is always Energy
+    for (let i = 1; i < sheet.headers.length; i++) {
+      const item = document.createElement('div');
+      const colId = `${sheetName}|${i}`;
+      const isActive = APP.selectedCols.has(colId);
+      
+      item.className = `channel-item ${isActive ? 'active' : ''}`;
+      item.innerHTML = `<span class="c-dot"></span>${sheet.headers[i]}<span class="dtype">Y-Axis</span>`;
+      
+      item.addEventListener('click', () => {
+        if (APP.selectedCols.has(colId)) {
+          APP.selectedCols.delete(colId);
+          item.classList.remove('active');
+        } else {
+          APP.selectedCols.add(colId);
+          item.classList.add('active');
+        }
+        updateButtons();
+        drawChart();
+      });
+      
+      chList.appendChild(item);
+    }
+    
+    node.appendChild(label);
+    node.appendChild(chList);
+    container.appendChild(node);
+  });
+}
+
+
+// --- Export File ---
+function exportExcel() {
+  const newWb = XLSX.utils.book_new();
+
+  Object.keys(APP.sheetsData).forEach(sheetName => {
+    const sheet = APP.sheetsData[sheetName];
+    const rowCount = sheet.columns[0].length;
+    
+    const aoa = [sheet.headers]; // Add Headers
+    
+    // Transpose columns back to rows
+    for (let i = 0; i < rowCount; i++) {
+      const row = [];
+      for (let j = 0; j < sheet.columns.length; j++) {
+        row.push(sheet.columns[j][i]);
+      }
+      aoa.push(row);
+    }
+    
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    XLSX.utils.book_append_sheet(newWb, ws, sheetName);
+  });
+
+  const exportName = APP.fileName.replace('.xlsx', '_Normalized.xlsx');
+  XLSX.writeFile(newWb, exportName);
+  showToast(`Exported ${exportName}`);
+}
+
+// --- Normalization ---
+function normalizeSelected() {
+  let normalizedCount = 0;
+  
+  APP.selectedCols.forEach(colId => {
+    const [sheetName, colIdxStr] = colId.split('|');
+    const colIdx = parseInt(colIdxStr, 10);
+    const sheet = APP.sheetsData[sheetName];
+    
+    const yData = sheet.columns[colIdx];
+    const header = sheet.headers[colIdx];
+    
+    // Convert to numbers safely and find Max
+    const validNums = yData.map(v => parseFloat(v)).filter(v => !isNaN(v));
+    if (validNums.length === 0) return;
+    const maxVal = Math.max(...validNums);
+    
+    const normData = yData.map(v => {
+      const num = parseFloat(v);
+      return !isNaN(num) ? num / maxVal : null;
+    });
+    
+    // Append new smart column
+    sheet.headers.push(`${header}_Normalized`);
+    sheet.columns.push(normData);
+    normalizedCount++;
+  });
+
+  if (normalizedCount > 0) {
+    showToast(`Normalized ${normalizedCount} plot(s)`);
+    APP.selectedCols.clear(); 
+    buildTree();
+    drawChart();
+    updateButtons();
+  }
+}
+
+
+// --- Charting Engine ---
+function drawChart() {
+  const canvas = document.getElementById('mainChart');
+  const wrap = document.getElementById('plotWrap');
+  const ctx = canvas.getContext('2d');
+  
+  // High DPI Canvas Scaling
+  const dpr = window.devicePixelRatio || 1;
+  const W = wrap.clientWidth || 800; 
+  const H = wrap.clientHeight || 500; 
+  
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  ctx.clearRect(0, 0, W, H);
+
+  if (APP.selectedCols.size === 0) return;
+
+  const M = { l: 70, r: 20, t: 20, b: 50 }; // Increased left and bottom margins for text
+  const pw = W - M.l - M.r;
+  const ph = H - M.t - M.b;
+
+  // Calculate global min/max for scaling
+  let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+  
+  const plotsToDraw = [];
+  let colorIdx = 0;
+
+  APP.selectedCols.forEach(colId => {
+    const [sheetName, colIdxStr] = colId.split('|');
+    const sheet = APP.sheetsData[sheetName];
+    
+    const xData = sheet.columns[0]; // 1st column is always Energy
+    const yData = sheet.columns[parseInt(colIdxStr, 10)];
+    
+    xData.forEach((x, i) => {
+      const y = yData[i];
+      const valX = parseFloat(x);
+      const valY = parseFloat(y);
+      
+      if (!isNaN(valX) && !isNaN(valY)) {
+        if (valX < xMin) xMin = valX; if (valX > xMax) xMax = valX;
+        if (valY < yMin) yMin = valY; if (valY > yMax) yMax = valY;
+      }
+    });
+
+    plotsToDraw.push({ xData, yData, color: APP.colors[colorIdx++ % APP.colors.length] });
+  });
+
+  if (xMin === Infinity || xMax === xMin) return;
+
+  const yPad = (yMax - yMin) * 0.05 || 0.1;
+  yMin -= yPad; yMax += yPad;
+
+  const xpx = x => M.l + ((x - xMin) / (xMax - xMin)) * pw;
+  const ypx = y => M.t + ph - ((y - yMin) / (yMax - yMin)) * ph;
+
+  // Draw Grid & Axes
+  const isDark = document.documentElement.classList.contains('dark');
+  ctx.strokeStyle = isDark ? '#2c2c2f' : '#e8e8ea';
+  ctx.lineWidth = 1;
+  
+  ctx.beginPath();
+  ctx.moveTo(M.l, M.t); ctx.lineTo(M.l, M.t + ph); ctx.lineTo(M.l + pw, M.t + ph);
+  ctx.stroke();
+
+  // Draw Ticks and Labels
+  ctx.fillStyle = isDark ? '#f1f1f3' : '#111113';
+  ctx.font = "12px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  
+  // X-axis (Energy)
+  ctx.fillText("Energy", M.l + pw / 2, M.t + ph + 30);
+  const xTicks = 6;
+  for (let i = 0; i <= xTicks; i++) {
+    const xVal = xMin + (i / xTicks) * (xMax - xMin);
+    const px = xpx(xVal);
+    ctx.fillText(xVal.toPrecision(4), px, M.t + ph + 8);
+    ctx.beginPath(); ctx.moveTo(px, M.t + ph); ctx.lineTo(px, M.t + ph + 5); ctx.stroke();
+  }
+
+  // Y-axis (Signal)
+  ctx.save();
+  ctx.translate(M.l - 55, M.t + ph / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText("Signal", 0, 0);
+  ctx.restore();
+  
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  const yTicks = 5;
+  for (let i = 0; i <= yTicks; i++) {
+    const yVal = yMin + (i / yTicks) * (yMax - yMin);
+    const py = ypx(yVal);
+    ctx.fillText(yVal.toExponential(2), M.l - 8, py);
+    ctx.beginPath(); ctx.moveTo(M.l - 5, py); ctx.lineTo(M.l, py); ctx.stroke();
+  }
+
+  // Draw Data
+  plotsToDraw.forEach(plot => {
+    ctx.strokeStyle = plot.color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    
+    let first = true;
+    plot.xData.forEach((x, i) => {
+      const y = plot.yData[i];
+      const valX = parseFloat(x);
+      const valY = parseFloat(y);
+      
+      if (!isNaN(valX) && !isNaN(valY)) {
+        const px = xpx(valX);
+        const py = ypx(valY);
+        if (first) { ctx.moveTo(px, py); first = false; } 
+        else { ctx.lineTo(px, py); }
+      }
+    });
+    ctx.stroke();
+  });
+}
+
+window.addEventListener('resize', drawChart);
+</script>
+</body>
+</html>
