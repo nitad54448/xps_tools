@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Excel Plot Normalizer</title>
-<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx-populate/1.21.0/xlsx-populate.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
@@ -1017,46 +1017,6 @@ dropzone.addEventListener('drop', e => {
   }
 });
 
-function handleFile(file) {
-  if (!file) return;
-  APP.fileName = file.name;
-  
-  // Update the banner with the loaded file name
-  document.getElementById('fileNameDisplay').textContent = APP.fileName;
-  
-  const reader = new FileReader();
-  reader.onload = e => {
-    const data = new Uint8Array(e.target.result);
-    const wb = XLSX.read(data, { type: 'array' });
-    
-    APP.sheetsData = {};
-    APP.selectedCols.clear();
-
-    wb.SheetNames.forEach(sheetName => {
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: null });
-      if (rows.length === 0) return;
-
-      const headers = rows[0].map((h, i) => h || `Column_${i}`);
-      const columns = headers.map(() => []);
-
-      for (let i = 1; i < rows.length; i++) {
-        for (let j = 0; j < headers.length; j++) {
-          columns[j].push(rows[i][j]);
-        }
-      }
-      APP.sheetsData[sheetName] = { headers, columns };
-    });
-
-    document.getElementById('dropzone').style.display = 'none';
-    document.getElementById('content').style.display = 'flex';
-    buildTree();
-    updateButtons();
-    showToast(`Loaded ${file.name}`);
-  };
-  reader.readAsArrayBuffer(file);
-}
-
-
 // --- Tree Building ---
 function buildTree() {
   const container = document.getElementById('treeContainer');
@@ -1111,39 +1071,92 @@ function buildTree() {
 }
 
 
+async function handleFile(file) {
+  if (!file) return;
+  APP.fileName = file.name;
+  document.getElementById('fileNameDisplay').textContent = APP.fileName;
 
-// --- Export File ---
-async function exportExcel() {
-  const newWb = XLSX.utils.book_new();
+  // Load workbook globally so we can preserve charts when we export
+  APP.workbook = await XlsxPopulate.fromDataAsync(file);
+  APP.sheetsData = {};
+  APP.selectedCols.clear();
 
-  Object.keys(APP.sheetsData).forEach(sheetName => {
-    const sheet = APP.sheetsData[sheetName];
-    const rowCount = sheet.columns[0].length;
-    
-    const aoa = [sheet.headers]; // Add Headers
-    
-    // Transpose columns back to rows
-    for (let i = 0; i < rowCount; i++) {
-      const row = [];
-      for (let j = 0; j < sheet.columns.length; j++) {
-        row.push(sheet.columns[j][i]);
+  APP.workbook.sheets().forEach(sheet => {
+    const usedRange = sheet.usedRange();
+    if (!usedRange) return;
+    const rows = usedRange.value(); 
+    if (rows.length === 0) return;
+
+    const headers = rows[0].map((h, i) => h || `Column_${i}`);
+    const columns = headers.map(() => []);
+
+    for (let i = 1; i < rows.length; i++) {
+      for (let j = 0; j < headers.length; j++) {
+        columns[j].push(rows[i] !== undefined ? rows[i][j] : null);
       }
-      aoa.push(row);
     }
-    
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    XLSX.utils.book_append_sheet(newWb, ws, sheetName);
+    APP.sheetsData[sheet.name()] = { headers, columns };
   });
 
+  document.getElementById('dropzone').style.display = 'none';
+  document.getElementById('content').style.display = 'flex';
+  buildTree();
+  updateButtons();
+  showToast(`Loaded ${file.name}`);
+}
+
+function normalizeSelected() {
+  let normalizedCount = 0;
+
+  APP.selectedCols.forEach(colId => {
+    const [sheetName, colIdxStr] = colId.split('|');
+    const colIdx = parseInt(colIdxStr, 10);
+    const sheet = APP.sheetsData[sheetName];
+    const wbSheet = APP.workbook.sheet(sheetName);
+
+    const yData = sheet.columns[colIdx];
+    const header = sheet.headers[colIdx];
+
+    const validNums = yData.map(v => parseFloat(v)).filter(v => !isNaN(v));
+    if (validNums.length === 0) return;
+    const maxVal = Math.max(...validNums);
+
+    const normData = yData.map(v => {
+      const num = parseFloat(v);
+      return !isNaN(num) ? num / maxVal : null;
+    });
+
+    // Update our UI data state
+    sheet.headers.push(`${header}_Normalized`);
+    sheet.columns.push(normData);
+    
+    // Write directly to the preserved Excel workbook (1-based index)
+    const newColNum = sheet.headers.length;
+    wbSheet.cell(1, newColNum).value(`${header}_Normalized`);
+    normData.forEach((val, rIdx) => {
+      wbSheet.cell(rIdx + 2, newColNum).value(val);
+    });
+
+    normalizedCount++;
+  });
+
+  if (normalizedCount > 0) {
+    showToast(`Normalized ${normalizedCount} plot(s)`);
+    APP.selectedCols.clear();
+    buildTree();
+    drawChart();
+    updateButtons();
+  }
+}
+
+async function exportExcel() {
   const defaultName = APP.fileName.replace(/\.xlsx?$/i, '') + '_Normalized.xlsx';
   
-  // Create raw binary blob for the export
-  const wbout = XLSX.write(newWb, { bookType: 'xlsx', type: 'array' });
-  const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  // Output the mutated workbook to a Blob, keeping original charts intact
+  const blob = await APP.workbook.outputAsync();
 
   try {
     if (window.showSaveFilePicker) {
-      // Modern API: Ask user for location and name
       const handle = await window.showSaveFilePicker({
         suggestedName: defaultName,
         types: [{
@@ -1156,7 +1169,6 @@ async function exportExcel() {
       await writable.close();
       showToast('Export successful');
     } else {
-      // Legacy Fallback
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -1166,48 +1178,7 @@ async function exportExcel() {
       showToast('Export successful');
     }
   } catch (err) {
-    if (err.name !== 'AbortError') {
-      console.error(err);
-      showToast('Export failed or was cancelled');
-    }
-  }
-}
-
-
-// --- Normalization ---
-function normalizeSelected() {
-  let normalizedCount = 0;
-  
-  APP.selectedCols.forEach(colId => {
-    const [sheetName, colIdxStr] = colId.split('|');
-    const colIdx = parseInt(colIdxStr, 10);
-    const sheet = APP.sheetsData[sheetName];
-    
-    const yData = sheet.columns[colIdx];
-    const header = sheet.headers[colIdx];
-    
-    // Convert to numbers safely and find Max
-    const validNums = yData.map(v => parseFloat(v)).filter(v => !isNaN(v));
-    if (validNums.length === 0) return;
-    const maxVal = Math.max(...validNums);
-    
-    const normData = yData.map(v => {
-      const num = parseFloat(v);
-      return !isNaN(num) ? num / maxVal : null;
-    });
-    
-    // Append new smart column
-    sheet.headers.push(`${header}_Normalized`);
-    sheet.columns.push(normData);
-    normalizedCount++;
-  });
-
-  if (normalizedCount > 0) {
-    showToast(`Normalized ${normalizedCount} plot(s)`);
-    APP.selectedCols.clear(); 
-    buildTree();
-    drawChart();
-    updateButtons();
+    if (err.name !== 'AbortError') showToast('Export failed or cancelled');
   }
 }
 
