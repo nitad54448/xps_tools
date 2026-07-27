@@ -924,7 +924,7 @@
   <div class="brand">
     <div class="logo">EXCEL<span>·</span>NORMALIZER</div>
     <div class="vline"></div>
-    <div class="crumb">Comparaisons.xlsx</div>
+    <div class="crumb" id="fileNameDisplay"></div>
   </div>
   <div class="grow"></div>
   <button id="normalizeBtn" class="hdr-btn primary" onclick="normalizeSelected()" disabled title="Normalize selected plots to max=1"><span class="ic"></span>Normalize Selected</button>
@@ -992,15 +992,39 @@ function updateButtons() {
   document.getElementById('chartEmpty').style.display = hasSelection ? 'none' : 'flex';
 }
 
+
 // --- File Handling & Parsing ---
-document.getElementById('dropzone').addEventListener('click', () => document.getElementById('fileInput').click());
-document.getElementById('fileInput').addEventListener('change', e => handleFile(e.target.files[0]));
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+
+dropzone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+
+// Drag and drop events
+dropzone.addEventListener('dragover', e => {
+  e.preventDefault();
+  dropzone.classList.add('drag-over');
+});
+dropzone.addEventListener('dragleave', e => {
+  e.preventDefault();
+  dropzone.classList.remove('drag-over');
+});
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('drag-over');
+  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+    handleFile(e.dataTransfer.files[0]);
+  }
+});
 
 function handleFile(file) {
   if (!file) return;
   APP.fileName = file.name;
-  const reader = new FileReader();
   
+  // Update the banner with the loaded file name
+  document.getElementById('fileNameDisplay').textContent = APP.fileName;
+  
+  const reader = new FileReader();
   reader.onload = e => {
     const data = new Uint8Array(e.target.result);
     const wb = XLSX.read(data, { type: 'array' });
@@ -1031,6 +1055,7 @@ function handleFile(file) {
   };
   reader.readAsArrayBuffer(file);
 }
+
 
 // --- Tree Building ---
 function buildTree() {
@@ -1086,8 +1111,9 @@ function buildTree() {
 }
 
 
+
 // --- Export File ---
-function exportExcel() {
+async function exportExcel() {
   const newWb = XLSX.utils.book_new();
 
   Object.keys(APP.sheetsData).forEach(sheetName => {
@@ -1109,10 +1135,44 @@ function exportExcel() {
     XLSX.utils.book_append_sheet(newWb, ws, sheetName);
   });
 
-  const exportName = APP.fileName.replace('.xlsx', '_Normalized.xlsx');
-  XLSX.writeFile(newWb, exportName);
-  showToast(`Exported ${exportName}`);
+  const defaultName = APP.fileName.replace(/\.xlsx?$/i, '') + '_Normalized.xlsx';
+  
+  // Create raw binary blob for the export
+  const wbout = XLSX.write(newWb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+  try {
+    if (window.showSaveFilePicker) {
+      // Modern API: Ask user for location and name
+      const handle = await window.showSaveFilePicker({
+        suggestedName: defaultName,
+        types: [{
+          description: 'Excel Workbook',
+          accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] }
+        }]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      showToast('Export successful');
+    } else {
+      // Legacy Fallback
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = defaultName;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Export successful');
+    }
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      console.error(err);
+      showToast('Export failed or was cancelled');
+    }
+  }
 }
+
 
 // --- Normalization ---
 function normalizeSelected() {
