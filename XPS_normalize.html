@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Excel Plot Normalizer</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx-populate/1.21.0/xlsx-populate.min.js"></script>
+<title>Plot Normalizer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
@@ -916,19 +916,95 @@
     letter-spacing: 0.06em;
   }
   #sortToggle:hover { border-color: var(--text); color: var(--text); }
+
+  /* Format badge in header crumb */
+  .fmt-badge {
+    font-family: var(--mono-font);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    padding: 1px 6px;
+    border-radius: 4px;
+    margin-left: 8px;
+  }
+
+  /* Export split: button + format select */
+  .export-group { display: inline-flex; align-items: stretch; }
+  .export-group .hdr-btn { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+  .export-group select {
+    height: 32px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: none;
+    border-top-right-radius: var(--r-sm);
+    border-bottom-right-radius: var(--r-sm);
+    color: var(--text2);
+    font-family: var(--mono-font);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    padding: 0 24px 0 10px;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 12px) 14px, calc(100% - 8px) 14px;
+    background-size: 4px 4px, 4px 4px;
+    background-repeat: no-repeat;
+    transition: border-color 0.12s, color 0.12s;
+  }
+  .export-group select:hover:not(:disabled) { border-color: var(--mute2); color: var(--text); }
+  .export-group select:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Full-window drag overlay */
+  #dragOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 3000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    pointer-events: none;
+  }
+  #dragOverlay.show { display: flex; }
+  #dragOverlay .card {
+    background: var(--surface);
+    border: 2px dashed var(--accent);
+    border-radius: var(--r-lg);
+    padding: 40px 56px;
+    text-align: center;
+    box-shadow: var(--shadow-2);
+  }
+  #dragOverlay .icon { font-family: var(--mono-font); font-size: 40px; color: var(--accent); display: block; margin-bottom: 12px; }
+  #dragOverlay .t1 { font-size: 16px; font-weight: 600; color: var(--text); }
+  #dragOverlay .t2 { font-family: var(--mono-font); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
 </style>
 </head>
 <body class="hplc-mode">
 
 <header>
   <div class="brand">
-    <div class="logo">EXCEL<span>·</span>NORMALIZER</div>
+    <div class="logo">PLOT<span>·</span>NORMALIZER</div>
     <div class="vline"></div>
     <div class="crumb" id="fileNameDisplay"></div>
+    <span class="fmt-badge" id="fmtBadge" style="display:none;"></span>
   </div>
   <div class="grow"></div>
   <button id="normalizeBtn" class="hdr-btn primary" onclick="normalizeSelected()" disabled title="Normalize selected plots to max=1"><span class="ic"></span>Normalize Selected</button>
-  <button id="exportBtn" class="hdr-btn" onclick="exportExcel()" disabled title="Export updated Excel file"><span class="ic"></span>Export Excel</button>
+  <div class="export-group">
+    <button id="exportBtn" class="hdr-btn" onclick="exportFile()" disabled title="Export normalized data"><span class="ic"></span>Export</button>
+    <select id="exportFmt" disabled title="Export format">
+      <option value="ods">ODS</option>
+      <option value="xlsx">XLSX</option>
+    </select>
+  </div>
   <div class="vline"></div>
   <button id="newFileBtn" class="hdr-btn" onclick="document.getElementById('fileInput').click()"><span class="ic"></span>Open file</button>
   <button id="themeToggle" class="hdr-btn icon-only" onclick="document.documentElement.classList.toggle('dark'); drawChart();">🌙</button>
@@ -937,9 +1013,9 @@
 <div class="main">
   <div id="dropzone">
     <span class="icon">⌇</span>
-    <h2>Load Comparaisons.xlsx</h2>
-    <p>Excel file · click or drag · runs locally</p>
-    <input type="file" id="fileInput" accept=".xlsx, .xls">
+    <h2>Drop a spreadsheet to begin</h2>
+    <p>.ods · .xlsx · .xls · click or drag · runs locally</p>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.ods">
   </div>
 
   <div id="content">
@@ -968,11 +1044,21 @@
 
 <div id="hplcToast"></div>
 
+<div id="dragOverlay">
+  <div class="card">
+    <span class="icon">⭳</span>
+    <div class="t1">Drop your spreadsheet</div>
+    <div class="t2">.ods · .xlsx · .xls</div>
+  </div>
+</div>
+
 <script>
 const APP = {
-  fileName: 'Comparaisons.xlsx',
-  sheetsData: {}, // Format: { sheetName: { headers: [], columns: [[]] } }
-  selectedCols: new Set(), // Format: "sheetName|colIndex"
+  fileName: '',
+  fileFormat: '',        // 'ods' | 'xlsx' | 'xls'
+  workbook: null,        // SheetJS workbook (mutated on normalize)
+  sheetsData: {},        // { sheetName: { headers: [], columns: [[]] } }
+  selectedCols: new Set(), // "sheetName|colIndex"
   colors: ['#e11d48', '#2563eb', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#ea580c', '#4f46e5']
 };
 
@@ -989,6 +1075,7 @@ function updateButtons() {
   const hasData = Object.keys(APP.sheetsData).length > 0;
   document.getElementById('normalizeBtn').disabled = !hasSelection;
   document.getElementById('exportBtn').disabled = !hasData;
+  document.getElementById('exportFmt').disabled = !hasData;
   document.getElementById('chartEmpty').style.display = hasSelection ? 'none' : 'flex';
 }
 
@@ -997,24 +1084,45 @@ function updateButtons() {
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
 
-dropzone.addEventListener('click', () => fileInput.click());
-fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+const dragOverlay = document.getElementById('dragOverlay');
 
-// Drag and drop events
-dropzone.addEventListener('dragover', e => {
-  e.preventDefault();
-  dropzone.classList.add('drag-over');
+dropzone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) handleFile(e.target.files[0]);
+  fileInput.value = ''; // allow re-selecting the same file
 });
-dropzone.addEventListener('dragleave', e => {
+
+// --- Whole-window drag & drop ---
+let dragDepth = 0; // counter so nested dragenter/leave don't flicker
+
+function isFileDrag(e) {
+  return e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+}
+
+window.addEventListener('dragenter', e => {
+  if (!isFileDrag(e)) return;
   e.preventDefault();
-  dropzone.classList.remove('drag-over');
+  dragDepth++;
+  dragOverlay.classList.add('show');
 });
-dropzone.addEventListener('drop', e => {
+window.addEventListener('dragover', e => {
+  if (!isFileDrag(e)) return;
   e.preventDefault();
-  dropzone.classList.remove('drag-over');
-  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-    handleFile(e.dataTransfer.files[0]);
-  }
+  e.dataTransfer.dropEffect = 'copy';
+});
+window.addEventListener('dragleave', e => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault();
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) dragOverlay.classList.remove('show');
+});
+window.addEventListener('drop', e => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault();
+  dragDepth = 0;
+  dragOverlay.classList.remove('show');
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) handleFile(f);
 });
 
 // --- Tree Building ---
@@ -1073,35 +1181,71 @@ function buildTree() {
 
 async function handleFile(file) {
   if (!file) return;
-  APP.fileName = file.name;
-  document.getElementById('fileNameDisplay').textContent = APP.fileName;
 
-  // Load workbook globally so we can preserve charts when we export
-  APP.workbook = await XlsxPopulate.fromDataAsync(file);
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  if (!['xlsx', 'xls', 'ods'].includes(ext)) {
+    showToast(`Unsupported file type: .${ext}`);
+    return;
+  }
+
+  APP.fileName = file.name;
+  APP.fileFormat = ext;
+  document.getElementById('fileNameDisplay').textContent = APP.fileName;
+  const badge = document.getElementById('fmtBadge');
+  badge.textContent = ext;
+  badge.style.display = 'inline-block';
+
+  // Default the export format to match what was loaded
+  document.getElementById('exportFmt').value = (ext === 'xls' || ext === 'xlsx') ? 'xlsx' : 'ods';
+
+  try {
+    const buf = await file.arrayBuffer();
+    // SheetJS auto-detects xls / xlsx / ods. cellDates keeps dates sane.
+    APP.workbook = XLSX.read(buf, { type: 'array', cellDates: true });
+  } catch (err) {
+    console.error(err);
+    showToast('Could not read file — is it a valid spreadsheet?');
+    return;
+  }
+
   APP.sheetsData = {};
   APP.selectedCols.clear();
 
-  APP.workbook.sheets().forEach(sheet => {
-    const usedRange = sheet.usedRange();
-    if (!usedRange) return;
-    const rows = usedRange.value(); 
-    if (rows.length === 0) return;
+  APP.workbook.SheetNames.forEach(name => {
+    const ws = APP.workbook.Sheets[name];
+    if (!ws) return;
+    // Array-of-arrays; header:1 = keep first row as headers, defval keeps grid rectangular
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: false });
+    if (!rows.length) return;
 
-    const headers = rows[0].map((h, i) => h || `Column_${i}`);
+    const headerRow = rows[0] || [];
+    const width = rows.reduce((m, r) => Math.max(m, r.length), headerRow.length);
+    const headers = [];
+    for (let i = 0; i < width; i++) {
+      const h = headerRow[i];
+      headers.push(h !== null && h !== undefined && h !== '' ? String(h) : `Column_${i}`);
+    }
+
     const columns = headers.map(() => []);
-
     for (let i = 1; i < rows.length; i++) {
+      const row = rows[i] || [];
       for (let j = 0; j < headers.length; j++) {
-        columns[j].push(rows[i] !== undefined ? rows[i][j] : null);
+        columns[j].push(row[j] !== undefined ? row[j] : null);
       }
     }
-    APP.sheetsData[sheet.name()] = { headers, columns };
+    APP.sheetsData[name] = { headers, columns };
   });
+
+  if (Object.keys(APP.sheetsData).length === 0) {
+    showToast('No data found in that file');
+    return;
+  }
 
   document.getElementById('dropzone').style.display = 'none';
   document.getElementById('content').style.display = 'flex';
   buildTree();
   updateButtons();
+  drawChart();
   showToast(`Loaded ${file.name}`);
 }
 
@@ -1112,7 +1256,6 @@ function normalizeSelected() {
     const [sheetName, colIdxStr] = colId.split('|');
     const colIdx = parseInt(colIdxStr, 10);
     const sheet = APP.sheetsData[sheetName];
-    const wbSheet = APP.workbook.sheet(sheetName);
 
     const yData = sheet.columns[colIdx];
     const header = sheet.headers[colIdx];
@@ -1120,22 +1263,16 @@ function normalizeSelected() {
     const validNums = yData.map(v => parseFloat(v)).filter(v => !isNaN(v));
     if (validNums.length === 0) return;
     const maxVal = Math.max(...validNums);
+    if (!isFinite(maxVal) || maxVal === 0) return;
 
     const normData = yData.map(v => {
       const num = parseFloat(v);
       return !isNaN(num) ? num / maxVal : null;
     });
 
-    // Update our UI data state
+    // Update in-memory data state; the workbook is rebuilt from this on export
     sheet.headers.push(`${header}_Normalized`);
     sheet.columns.push(normData);
-    
-    // Write directly to the preserved Excel workbook (1-based index)
-    const newColNum = sheet.headers.length;
-    wbSheet.cell(1, newColNum).value(`${header}_Normalized`);
-    normData.forEach((val, rIdx) => {
-      wbSheet.cell(rIdx + 2, newColNum).value(val);
-    });
 
     normalizedCount++;
   });
@@ -1149,25 +1286,56 @@ function normalizeSelected() {
   }
 }
 
-async function exportExcel() {
-  const defaultName = APP.fileName.replace(/\.xlsx?$/i, '') + '_Normalized.xlsx';
-  
-  // Output the mutated workbook to a Blob, keeping original charts intact
-  const blob = await APP.workbook.outputAsync();
+// Rebuild a clean SheetJS workbook from the current (possibly normalized) data
+function buildWorkbookFromData() {
+  const wb = XLSX.utils.book_new();
+  Object.keys(APP.sheetsData).forEach(sheetName => {
+    const sheet = APP.sheetsData[sheetName];
+    const nRows = sheet.columns.reduce((m, c) => Math.max(m, c.length), 0);
+    const aoa = [sheet.headers.slice()];
+    for (let r = 0; r < nRows; r++) {
+      const row = sheet.columns.map(col => (col[r] === undefined ? null : col[r]));
+      aoa.push(row);
+    }
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    // ODS/XLSX sheet names max 31 chars
+    XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+  });
+  return wb;
+}
+
+async function exportFile() {
+  const fmt = document.getElementById('exportFmt').value; // 'ods' | 'xlsx'
+  const base = APP.fileName.replace(/\.(xlsx|xls|ods)$/i, '');
+  const defaultName = `${base}_Normalized.${fmt}`;
+
+  const wb = buildWorkbookFromData();
+
+  const mime = fmt === 'ods'
+    ? 'application/vnd.oasis.opendocument.spreadsheet'
+    : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+  // bookType 'ods' or 'xlsx'; write to array then wrap in a Blob
+  let blob;
+  try {
+    const out = XLSX.write(wb, { bookType: fmt, type: 'array' });
+    blob = new Blob([out], { type: mime });
+  } catch (err) {
+    console.error(err);
+    showToast('Export failed');
+    return;
+  }
 
   try {
     if (window.showSaveFilePicker) {
       const handle = await window.showSaveFilePicker({
         suggestedName: defaultName,
-        types: [{
-          description: 'Excel Workbook',
-          accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] }
-        }]
+        types: [{ description: fmt.toUpperCase() + ' spreadsheet', accept: { [mime]: ['.' + fmt] } }]
       });
       const writable = await handle.createWritable();
       await writable.write(blob);
       await writable.close();
-      showToast('Export successful');
+      showToast(`Exported ${fmt.toUpperCase()}`);
     } else {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -1175,7 +1343,7 @@ async function exportExcel() {
       a.download = defaultName;
       a.click();
       URL.revokeObjectURL(url);
-      showToast('Export successful');
+      showToast(`Exported ${fmt.toUpperCase()}`);
     }
   } catch (err) {
     if (err.name !== 'AbortError') showToast('Export failed or cancelled');
