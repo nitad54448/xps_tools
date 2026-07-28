@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Plot Normalizer</title>
+<title>Spreadsheet Plot Normalizer</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
@@ -960,6 +960,44 @@
   .export-group select:hover:not(:disabled) { border-color: var(--mute2); color: var(--text); }
   .export-group select:disabled { opacity: 0.4; cursor: not-allowed; }
 
+  /* Background-range input group */
+  .bg-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+  }
+  .bg-group .bg-lbl {
+    font-family: var(--mono-font);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .bg-group input[type=number] {
+    width: 58px;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text);
+    font-family: var(--mono-font);
+    font-size: 12.5px;
+    font-weight: 600;
+    text-align: right;
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+  .bg-group input[type=number]::-webkit-outer-spin-button,
+  .bg-group input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .bg-group .bg-dash { color: var(--muted); font-family: var(--mono-font); font-size: 12px; }
+  .bg-group .bg-unit { font-family: var(--mono-font); font-size: 10px; color: var(--muted); letter-spacing: 0.04em; }
+  .bg-group.disabled { opacity: 0.4; pointer-events: none; }
+
   /* ===== Chart cursor / readout ===== */
   #plotWrap { cursor: crosshair; }
   #cursorReadout {
@@ -1018,13 +1056,20 @@
 
 <header>
   <div class="brand">
-    <div class="logo">PLOT<span>·</span>NORMALIZER 1.1</div>
+    <div class="logo">PLOT<span>·</span>NORMALIZER</div>
     <div class="vline"></div>
     <div class="crumb" id="fileNameDisplay"></div>
     <span class="fmt-badge" id="fmtBadge" style="display:none;"></span>
   </div>
   <div class="grow"></div>
-  <button id="normalizeBtn" class="hdr-btn primary" onclick="normalizeSelected()" disabled title="Normalize selected plots to max=1"><span class="ic"></span>Normalize Selected</button>
+  <div class="bg-group disabled" id="bgGroup" title="Energy range of the flat pre-peak background to subtract (leave blank to skip subtraction)">
+    <span class="bg-lbl">BG</span>
+    <input type="number" id="bgMin" placeholder="min" step="any">
+    <span class="bg-dash">–</span>
+    <input type="number" id="bgMax" placeholder="max" step="any">
+    <span class="bg-unit">eV</span>
+  </div>
+  <button id="normalizeBtn" class="hdr-btn primary" onclick="normalizeSelected()" disabled title="Subtract background then scale so max = 1"><span class="ic"></span>Subtract BG &amp; Normalize</button>
   <div class="export-group">
     <button id="exportBtn" class="hdr-btn" onclick="exportFile()" disabled title="Export normalized data"><span class="ic"></span>Export</button>
     <select id="exportFmt" disabled title="Export format">
@@ -1105,6 +1150,7 @@ function updateButtons() {
   document.getElementById('normalizeBtn').disabled = !hasSelection;
   document.getElementById('exportBtn').disabled = !hasData;
   document.getElementById('exportFmt').disabled = !hasData;
+  document.getElementById('bgGroup').classList.toggle('disabled', !hasData);
   document.getElementById('chartEmpty').style.display = hasSelection ? 'none' : 'flex';
 }
 
@@ -1115,8 +1161,7 @@ const fileInput = document.getElementById('fileInput');
 
 const dragOverlay = document.getElementById('dragOverlay');
 
-dropzone.addEventListener('click', () => fileInput.click());
-fileInput.addEventListener('change', e => {
+dropzone.addEventListener('click', () => fileInput.click());fileInput.addEventListener('change', e => {
   if (e.target.files[0]) handleFile(e.target.files[0]);
   fileInput.value = ''; // allow re-selecting the same file
 });
@@ -1152,6 +1197,11 @@ window.addEventListener('drop', e => {
   dragOverlay.classList.remove('show');
   const f = e.dataTransfer.files && e.dataTransfer.files[0];
   if (f) handleFile(f);
+});
+
+// Live-preview the background band as the range is typed
+['bgMin', 'bgMax'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => { if (APP.plotGeom) drawChart(); });
 });
 
 // --- Tree Building ---
@@ -1280,38 +1330,71 @@ async function handleFile(file) {
 
 function normalizeSelected() {
   let normalizedCount = 0;
+  let skippedNoBg = 0;
+
+  // Read the background energy range (optional). Blank -> no subtraction.
+  const bgMinRaw = document.getElementById('bgMin').value.trim();
+  const bgMaxRaw = document.getElementById('bgMax').value.trim();
+  let bgLo = parseFloat(bgMinRaw);
+  let bgHi = parseFloat(bgMaxRaw);
+  const useBg = bgMinRaw !== '' && bgMaxRaw !== '' && !isNaN(bgLo) && !isNaN(bgHi);
+  if (useBg && bgLo > bgHi) { const t = bgLo; bgLo = bgHi; bgHi = t; } // tolerate reversed order
+
+  const suffix = useBg ? '_BGsub_Norm' : '_Normalized';
 
   APP.selectedCols.forEach(colId => {
     const [sheetName, colIdxStr] = colId.split('|');
     const colIdx = parseInt(colIdxStr, 10);
     const sheet = APP.sheetsData[sheetName];
 
+    const xData = sheet.columns[0];       // first column = Energy
     const yData = sheet.columns[colIdx];
     const header = sheet.headers[colIdx];
 
-    const validNums = yData.map(v => parseFloat(v)).filter(v => !isNaN(v));
+    // 1) Background: average Y over the samples whose Energy is inside [bgLo, bgHi]
+    let bg = 0;
+    if (useBg) {
+      let sum = 0, n = 0;
+      for (let i = 0; i < yData.length; i++) {
+        const ex = parseFloat(xData[i]);
+        const yv = parseFloat(yData[i]);
+        if (isNaN(ex) || isNaN(yv)) continue;
+        if (ex >= bgLo && ex <= bgHi) { sum += yv; n++; }
+      }
+      if (n === 0) { skippedNoBg++; return; } // range fell outside this spectrum
+      bg = sum / n;
+    }
+
+    // 2) Subtract background, then find max of the corrected signal
+    const corrected = yData.map(v => {
+      const num = parseFloat(v);
+      return !isNaN(num) ? num - bg : null;
+    });
+    const validNums = corrected.filter(v => v !== null && isFinite(v));
     if (validNums.length === 0) return;
     const maxVal = Math.max(...validNums);
-    if (!isFinite(maxVal) || maxVal === 0) return;
+    if (!isFinite(maxVal) || maxVal <= 0) return; // nothing meaningful to scale to
 
-    const normData = yData.map(v => {
-      const num = parseFloat(v);
-      return !isNaN(num) ? num / maxVal : null;
-    });
+    // 3) Scale so the peak = 1 (baseline sits near 0)
+    const normData = corrected.map(v => (v !== null ? v / maxVal : null));
 
-    // Update in-memory data state; the workbook is rebuilt from this on export
-    sheet.headers.push(`${header}_Normalized`);
+    sheet.headers.push(`${header}${suffix}`);
     sheet.columns.push(normData);
 
     normalizedCount++;
   });
 
   if (normalizedCount > 0) {
-    showToast(`Normalized ${normalizedCount} plot(s)`);
+    const msg = useBg
+      ? `Background-subtracted & normalized ${normalizedCount} plot(s)`
+      : `Normalized ${normalizedCount} plot(s)`;
+    showToast(msg);
     APP.selectedCols.clear();
     buildTree();
     drawChart();
     updateButtons();
+  } else if (skippedNoBg > 0) {
+    showToast(`Background range ${bgLo}–${bgHi} has no points in the selected spectra`);
   }
 }
 
@@ -1442,6 +1525,37 @@ function drawChart() {
 
   // Draw Grid & Axes
   const isDark = document.documentElement.classList.contains('dark');
+
+  // Shade the chosen background (BG) energy range, if any and if it overlaps the view
+  const bgLoRaw = document.getElementById('bgMin');
+  const bgHiRaw = document.getElementById('bgMax');
+  if (bgLoRaw && bgHiRaw) {
+    let lo = parseFloat(bgLoRaw.value);
+    let hi = parseFloat(bgHiRaw.value);
+    if (!isNaN(lo) && !isNaN(hi)) {
+      if (lo > hi) { const t = lo; lo = hi; hi = t; }
+      const cLo = Math.max(lo, xMin), cHi = Math.min(hi, xMax);
+      if (cHi > cLo) {
+        const x0 = xpx(cLo), x1 = xpx(cHi);
+        ctx.fillStyle = isDark ? 'rgba(110,168,255,0.12)' : 'rgba(37,99,235,0.09)';
+        ctx.fillRect(x0, M.t, x1 - x0, ph);
+        ctx.strokeStyle = isDark ? 'rgba(110,168,255,0.5)' : 'rgba(37,99,235,0.5)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(x0, M.t); ctx.lineTo(x0, M.t + ph);
+        ctx.moveTo(x1, M.t); ctx.lineTo(x1, M.t + ph);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = isDark ? 'rgba(110,168,255,0.8)' : 'rgba(37,99,235,0.8)';
+        ctx.font = '10px ' + "'IBM Plex Mono', monospace";
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText('BG', (x0 + x1) / 2, M.t + 3);
+      }
+    }
+  }
+
   ctx.strokeStyle = isDark ? '#2c2c2f' : '#e8e8ea';
   ctx.lineWidth = 1;
   
