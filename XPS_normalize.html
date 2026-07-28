@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Plot Normalizer</title>
+<title>Spreadsheet Plot Normalizer</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
@@ -960,6 +960,33 @@
   .export-group select:hover:not(:disabled) { border-color: var(--mute2); color: var(--text); }
   .export-group select:disabled { opacity: 0.4; cursor: not-allowed; }
 
+  /* ===== Chart cursor / readout ===== */
+  #plotWrap { cursor: crosshair; }
+  #cursorReadout {
+    position: absolute;
+    z-index: 20;
+    pointer-events: none;
+    display: none;
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 6px 9px;
+    font-family: var(--mono-font);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text);
+    box-shadow: var(--shadow-2);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    white-space: nowrap;
+    letter-spacing: 0.01em;
+  }
+  #cursorReadout .rc-row { display: flex; align-items: center; gap: 7px; }
+  #cursorReadout .rc-k { color: var(--muted); width: 12px; }
+  #cursorReadout .rc-v { color: var(--text); font-weight: 600; }
+  #cursorReadout .rc-swatch { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  #cursorReadout .rc-name { color: var(--muted); font-weight: 500; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+
   /* Full-window drag overlay */
   #dragOverlay {
     position: fixed;
@@ -1032,6 +1059,8 @@
       <div id="hplcView" style="display: flex; flex: 1; min-width: 0; position: sticky; top: 20px; height: calc(100vh - 120px);">
         <div class="hplc-chart-wrap" id="plotWrap" style="flex: 1; position: relative; padding: 0;">
           <canvas id="mainChart" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></canvas>
+          <canvas id="cursorLayer" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 15;"></canvas>
+          <div id="cursorReadout"></div>
           <div class="hplc-empty" id="chartEmpty" style="position: absolute; width: 100%; height: 100%; z-index: 10; display: flex; align-items: center; justify-content: center;">
             <div>Select one or more columns on the left to plot</div>
           </div>
@@ -1370,7 +1399,7 @@ function drawChart() {
 
   ctx.clearRect(0, 0, W, H);
 
-  if (APP.selectedCols.size === 0) return;
+  if (APP.selectedCols.size === 0) { APP.plotGeom = null; clearCursor(); return; }
 
   const M = { l: 70, r: 20, t: 20, b: 50 }; // Increased left and bottom margins for text
   const pw = W - M.l - M.r;
@@ -1400,7 +1429,7 @@ function drawChart() {
       }
     });
 
-    plotsToDraw.push({ xData, yData, color: APP.colors[colorIdx++ % APP.colors.length] });
+    plotsToDraw.push({ name: sheet.headers[parseInt(colIdxStr, 10)], xData, yData, color: APP.colors[colorIdx++ % APP.colors.length] });
   });
 
   if (xMin === Infinity || xMax === xMin) return;
@@ -1474,9 +1503,131 @@ function drawChart() {
     });
     ctx.stroke();
   });
+
+  // Save geometry so the cursor layer can map pixels <-> data
+  APP.plotGeom = { M, pw, ph, W, H, xMin, xMax, yMin, yMax, plots: plotsToDraw };
+  // Keep the overlay canvas sized to match
+  syncCursorCanvas();
 }
 
-window.addEventListener('resize', drawChart);
+// ===== Chart cursor with local X,Y indicators =====
+function syncCursorCanvas() {
+  const wrap = document.getElementById('plotWrap');
+  const cv = document.getElementById('cursorLayer');
+  const dpr = window.devicePixelRatio || 1;
+  const W = wrap.clientWidth || 800;
+  const H = wrap.clientHeight || 500;
+  cv.width = W * dpr;
+  cv.height = H * dpr;
+  cv.style.width = W + 'px';
+  cv.style.height = H + 'px';
+  cv.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function clearCursor() {
+  const cv = document.getElementById('cursorLayer');
+  const ctx = cv.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  ctx.clearRect(0, 0, cv.width / dpr, cv.height / dpr);
+  document.getElementById('cursorReadout').style.display = 'none';
+}
+
+function onChartMove(e) {
+  const g = APP.plotGeom;
+  if (!g || !g.plots || g.plots.length === 0) { clearCursor(); return; }
+
+  const wrap = document.getElementById('plotWrap');
+  const rect = wrap.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  const { M, pw, ph, xMin, xMax, yMin, yMax } = g;
+  // Only respond inside the plotting area
+  if (mx < M.l || mx > M.l + pw || my < M.t || my > M.t + ph) { clearCursor(); return; }
+
+  // Pixel -> data for the free X position under the mouse
+  const dataX = xMin + ((mx - M.l) / pw) * (xMax - xMin);
+
+  const xpx = x => M.l + ((x - xMin) / (xMax - xMin)) * pw;
+  const ypx = y => M.t + ph - ((y - yMin) / (yMax - yMin)) * ph;
+
+  // Snap to the nearest sample (by X) on each curve; pick the curve whose
+  // snapped point is closest to the pointer in screen space.
+  let best = null;
+  g.plots.forEach(plot => {
+    let bi = -1, bdx = Infinity;
+    for (let i = 0; i < plot.xData.length; i++) {
+      const vx = parseFloat(plot.xData[i]);
+      const vy = parseFloat(plot.yData[i]);
+      if (isNaN(vx) || isNaN(vy)) continue;
+      const dx = Math.abs(vx - dataX);
+      if (dx < bdx) { bdx = dx; bi = i; }
+    }
+    if (bi < 0) return;
+    const vx = parseFloat(plot.xData[bi]);
+    const vy = parseFloat(plot.yData[bi]);
+    const sx = xpx(vx), sy = ypx(vy);
+    const d = Math.hypot(sx - mx, sy - my);
+    if (!best || d < best.d) best = { d, vx, vy, sx, sy, color: plot.color, name: plot.name };
+  });
+  if (!best) { clearCursor(); return; }
+
+  // Draw crosshair + marker on the overlay
+  const cv = document.getElementById('cursorLayer');
+  const ctx = cv.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  ctx.clearRect(0, 0, cv.width / dpr, cv.height / dpr);
+
+  const isDark = document.documentElement.classList.contains('dark');
+  ctx.save();
+  ctx.strokeStyle = isDark ? 'rgba(241,241,243,0.35)' : 'rgba(17,17,19,0.30)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  // vertical line at pointer X, horizontal line at snapped Y
+  ctx.beginPath();
+  ctx.moveTo(mx, M.t); ctx.lineTo(mx, M.t + ph);
+  ctx.moveTo(M.l, best.sy); ctx.lineTo(M.l + pw, best.sy);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // marker dot on the curve
+  ctx.beginPath();
+  ctx.fillStyle = best.color;
+  ctx.arc(best.sx, best.sy, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = isDark ? '#161617' : '#ffffff';
+  ctx.stroke();
+  ctx.restore();
+
+  // Readout box, positioned near the pointer, flipped to stay on-screen
+  const box = document.getElementById('cursorReadout');
+  box.innerHTML =
+    `<div class="rc-row"><span class="rc-swatch" style="background:${best.color}"></span>` +
+    `<span class="rc-name">${best.name}</span></div>` +
+    `<div class="rc-row"><span class="rc-k">X</span><span class="rc-v">${fmtVal(best.vx)}</span></div>` +
+    `<div class="rc-row"><span class="rc-k">Y</span><span class="rc-v">${fmtVal(best.vy)}</span></div>`;
+  box.style.display = 'block';
+  const bw = box.offsetWidth, bh = box.offsetHeight, pad = 14;
+  let left = mx + pad, top = my + pad;
+  if (left + bw > g.W) left = mx - bw - pad;
+  if (top + bh > g.H) top = my - bh - pad;
+  box.style.left = Math.max(2, left) + 'px';
+  box.style.top = Math.max(2, top) + 'px';
+}
+
+function fmtVal(v) {
+  const a = Math.abs(v);
+  if (v === 0) return '0';
+  if (a >= 1e4 || a < 1e-3) return v.toExponential(3);
+  return v.toPrecision(5).replace(/\.?0+$/, '');
+}
+
+const _plotWrapEl = document.getElementById('plotWrap');
+_plotWrapEl.addEventListener('mousemove', onChartMove);
+_plotWrapEl.addEventListener('mouseleave', clearCursor);
+
+window.addEventListener('resize', () => { drawChart(); clearCursor(); });
 </script>
 </body>
 </html>
