@@ -1372,7 +1372,7 @@ function normalizeSelected() {
     });
     const validNums = corrected.filter(v => v !== null && isFinite(v));
     if (validNums.length === 0) return;
-    const maxVal = Math.max(...validNums);
+    const maxVal = validNums.reduce((max, value) => Math.max(max, value), -Infinity);
     if (!isFinite(maxVal) || maxVal <= 0) return; // nothing meaningful to scale to
 
     // 3) Scale so the peak = 1 (baseline sits near 0)
