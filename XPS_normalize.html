@@ -1204,6 +1204,15 @@ window.addEventListener('drop', e => {
   document.getElementById(id).addEventListener('input', () => { if (APP.plotGeom) drawChart(); });
 });
 
+function escapeHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // --- Tree Building ---
 function buildTree() {
   const container = document.getElementById('treeContainer');
@@ -1217,7 +1226,7 @@ function buildTree() {
     
     const label = document.createElement('div');
     label.className = 'group-label open';
-    label.innerHTML = `<span class="arrow">▶</span><span class="g-icon">▤</span>${sheetName}<span class="ch-count">${sheet.headers.length - 1} plots</span>`;
+    label.innerHTML = `<span class="arrow">▶</span><span class="g-icon">▤</span>${escapeHtml(sheetName)}<span class="ch-count">${sheet.headers.length - 1} plots</span>`;
     
     const chList = document.createElement('div');
     chList.className = 'channels-list open';
@@ -1234,7 +1243,7 @@ function buildTree() {
       const isActive = APP.selectedCols.has(colId);
       
       item.className = `channel-item ${isActive ? 'active' : ''}`;
-      item.innerHTML = `<span class="c-dot"></span>${sheet.headers[i]}<span class="dtype">Y-Axis</span>`;
+      item.innerHTML = `<span class="c-dot"></span>${escapeHtml(sheet.headers[i] || `Column ${i + 1}`)}<span class="dtype">Y-Axis</span>`;
       
       item.addEventListener('click', () => {
         if (APP.selectedCols.has(colId)) {
@@ -1343,7 +1352,9 @@ function normalizeSelected() {
   const suffix = useBg ? '_BGsub_Norm' : '_Normalized';
 
   APP.selectedCols.forEach(colId => {
-    const [sheetName, colIdxStr] = colId.split('|');
+    const sepIdx = colId.lastIndexOf('|');
+    const sheetName = colId.slice(0, sepIdx);
+    const colIdxStr = colId.slice(sepIdx + 1);
     const colIdx = parseInt(colIdxStr, 10);
     const sheet = APP.sheetsData[sheetName];
 
@@ -1421,8 +1432,6 @@ async function exportFile() {
   const base = APP.fileName.replace(/\.(xlsx|xls|ods)$/i, '');
   const defaultName = `${base}_Normalized.${fmt}`;
 
-  const wb = buildWorkbookFromData();
-
   const mime = fmt === 'ods'
     ? 'application/vnd.oasis.opendocument.spreadsheet'
     : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -1430,6 +1439,7 @@ async function exportFile() {
   // bookType 'ods' or 'xlsx'; write to array then wrap in a Blob
   let blob;
   try {
+    const wb = buildWorkbookFromData();
     const out = XLSX.write(wb, { bookType: fmt, type: 'array' });
     blob = new Blob([out], { type: mime });
   } catch (err) {
@@ -1495,7 +1505,9 @@ function drawChart() {
   let colorIdx = 0;
 
   APP.selectedCols.forEach(colId => {
-    const [sheetName, colIdxStr] = colId.split('|');
+    const sepIdx = colId.lastIndexOf('|');
+    const sheetName = colId.slice(0, sepIdx);
+    const colIdxStr = colId.slice(sepIdx + 1);
     const sheet = APP.sheetsData[sheetName];
     
     const xData = sheet.columns[0]; // 1st column is always Energy
@@ -1718,7 +1730,7 @@ function onChartMove(e) {
   const box = document.getElementById('cursorReadout');
   box.innerHTML =
     `<div class="rc-row"><span class="rc-swatch" style="background:${best.color}"></span>` +
-    `<span class="rc-name">${best.name}</span></div>` +
+    `<span class="rc-name">${escapeHtml(best.name)}</span></div>` +
     `<div class="rc-row"><span class="rc-k">X</span><span class="rc-v">${fmtVal(best.vx)}</span></div>` +
     `<div class="rc-row"><span class="rc-k">Y</span><span class="rc-v">${fmtVal(best.vy)}</span></div>`;
   box.style.display = 'block';
